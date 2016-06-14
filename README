@@ -338,7 +338,7 @@ Inverters and polarity flips
 ============================
 
 Some expressions could be incorrectly tagged. For example, this part of our example review:
-							the eggplant is not bad
+		the eggplant is not bad
 
 contains the word bad but the sentence is a positive opinion about the eggplant.
 This is because the appearance of the negation word not, that flips the meaning of the negative adjective bad.
@@ -366,7 +366,7 @@ Retrive the text from the website
 
 3. Import the following modules:
 
-     import urllib
+         import urllib
 	 import lxml
  	 import nltk
 	 import yaml
