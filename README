@@ -1,0 +1,489 @@
+Feedback analyser
+-----------------
+
+Description
+-----------
+A tool to parse the internet site, insert the extracted data into a SQLite3 database file and to make a sentiment analysis about each comment.
+
+
+
+Prerequisites
+-------------
+
+- Python 2.7 or later (http://www.python.org/)
+
+- lxml 2.0 or later. The ``lxml``library is needed for  
+  processing ``HTML`` in Python language. The easiest way to do so is to install ``lxml`` from (http://lxml.de/)
+  or if you use git git clone git://github.com/lxml/lxml.git lxml .
+
+- SQLite3 is a build-in standard library since python 2.5, to 
+  access the database. It's nos C/S mode database like MySql, it just like file in the local disk. Operations in the database just like operating the files.
+
+- SQLite Database Browser
+  (https://sourceforge.net/projects/sqlitedbrowser/). 
+  This is a tool for you to manage your local database.
+
+- Firefox browser 
+  (https://www.mozilla.org/en-US/firefox/new/).
+
+- FireBug 
+  (https://addons.mozilla.org/en-US/firefox/addon/
+  firebug/).Firebug integrates with Firefox to put a wealth of development tools at your fingertips while you browse. You can edit, debug, and monitor CSS, HTML, and JavaScript live in any web page.
+
+- FirePath 
+  (https://addons.mozilla.org/en-US/firefox/addon/firepath/)
+  FirePath is a Firebug extension that adds a development tool to edit, inspect and generate XPath 1.0 expressions.
+
+- NLTK
+  (https://pypi.python.org/pypi/nltk)
+  Python package for natural language processing.
+
+- Py2exe (http://www.py2exe.org/)
+  The ``py2exe`` is needed for turnning Python programs into pachages that can be run  on other Windows computers without needing to install Python on those computers. Python is needed on the computer where py2exe itself is run because py2exe is a Python program and it includes parts of Python in the package that is built.
+
+
+Create a database
+-----------------
+
+Follow these steps to create a database:
+========================================
+
+1. Create a new python file.
+
+2. Let's start by importing in the new python file the sqlite3 
+   module:
+         
+     import sqlite3
+
+3. Create a ``class CommentStorage`` or name it how you want.
+
+4. In the created class create a contructor, next establish a 
+   connection to the database through path parameter and also create a cursor wich is an object for interacting with the database:
+
+     class CommentStorage(object):
+		def __init__(self, path):
+			self.connection = sqlite3.connect(path) 
+			self.cursor = self.connection.cursor()
+
+5. Create a ``Close`` function, wich you will use when you are 
+   done with the database:
+
+	    def Close(self):
+			self.cursor.close()
+			self.connection.close()
+
+6. Create another function ``CreateBb``. In this function 
+   compose a query - create a table with  the required attributes. The first attribute is ID wich is the PRIMARY KEY.
+
+		def CreateDb(self):
+			query = """CREATE TABLE amazonDB
+					(id INTEGER PRIMARY KEY, rating INTEGER, author TEXT, date DATETIME, text TEXT, emotion TEXT )"""
+			self.cursor.execute(query)
+			self.connection.commit()
+
+		
+7. Create the last function ``AddComent``       
+	    def AddComment(self, rating, author, date, text, emotion):
+
+			self.cursor.execute("""INSERT INTO amazonDB
+					            VALUES (?,?,?,?,?,?)""", (None, rating, author, date, text, emotion))
+		
+			self.connection.commit()
+
+
+
+Extract the xpath queries
+-------------------------
+
+To create the ``xpath queries`` use ``FirePath`` from ``Firefox``.
+This is the ``xpath queries`` for the first comment on random customer review page from `https://www.amazon.com`:
+
+	* rating: string(//div[@id='cm_cr-review_list']/div[1]/div[1]/a[1]/i)
+	* author: string(//div[@id='cm_cr-review_list']/div[1]/div[2]/span[1]/a)
+	* date:   string(//div[@id='cm_cr-review_list']/div[1]/div[2]/span[4])
+	* text:   string(//div[@id='cm_cr-review_list']/div[1]/div[4]/span)
+
+To cover all the comments from page in our program, change the ``xpath queries`` for the first comment into: 
+
+	* rating: string(//div[@id='cm_cr-review_list']/div["+str(i)+"]/div[1]/a[1]/i)
+	* author: string(//div[@id='cm_cr-review_list']/div["+str(i)+"]/div[2]/span[1]/a)
+	* date:   string(//div[@id='cm_cr-review_list']/div["+str(i)+"]/div[2]/span[4])
+	* text:   string(//div[@id='cm_cr-review_list']/div["+str(i)+"]/div[4]/span)
+
+
+
+Sentiment analysis:
+-------------------
+
+Prepocessing the Text:
+======================
+
+from pprint import pprint
+import nltk
+import yaml
+import sys
+import os
+import re
+
+class Splitter(object):
+
+    def __init__(self):
+        self.nltk_splitter = nltk.data.load('tokenizers/punkt/english.pickle')
+        self.nltk_tokenizer = nltk.tokenize.TreebankWordTokenizer()
+
+    def split(self, text):
+        """
+        input format: a paragraph of text
+        output format: a list of lists of words.
+            e.g.: [['this', 'is', 'a', 'sentence'], ['this', 'is', 'another', 'one']]
+        """
+        sentences = self.nltk_splitter.tokenize(text)
+        tokenized_sentences = [self.nltk_tokenizer.tokenize(sent) for sent in sentences]
+        return tokenized_sentences
+
+
+class POSTagger(object):
+
+    def __init__(self):
+        pass
+        
+    def pos_tag(self, sentences):
+        """
+        input format: list of lists of words
+            e.g.: [['this', 'is', 'a', 'sentence'], ['this', 'is', 'another', 'one']]
+        output format: list of lists of tagged tokens. Each tagged tokens has a
+        form, a lemma, and a list of tags
+            e.g: [[('this', 'this', ['DT']), ('is', 'be', ['VB']), ('a', 'a', ['DT']), ('sentence', 'sentence', ['NN'])],
+                    [('this', 'this', ['DT']), ('is', 'be', ['VB']), ('another', 'another', ['DT']), ('one', 'one', ['CARD'])]]
+        """
+
+        pos = [nltk.pos_tag(sentence) for sentence in sentences]
+        #adapt format
+        pos = [[(word, word, [postag]) for (word, postag) in sentence] for sentence in pos]
+        return pos
+
+
+Defining a dictionary of positive and negative expressions
+==========================================================
+
+The next step is to recognize positive and negative expressions. To achieve this, use dictionaries, i.e. simple files containing expressions that will be searched in our text.
+
+For example, define two tiny dictionaries, one for positive expressions and other for negative ones:
+
+positive.yml
+	nice: [positive]
+	awesome: [positive]
+	cool: [positive]
+	superb: [positive]
+	happy: [positive]
+	worked: [positive]
+	simply: [positive]
+	recommend: [positive]
+	Excellent: [positive]
+	great: [positive]
+	works: [positive]
+	perfect: [positive]
+
+negative.yml
+	bad: [negative]
+	uninspired: [negative]
+	expensive: [negative]
+	dissapointed: [negative]
+	never: [negative]
+	wasted: [negative]
+	nope: [negative]
+	deleted: [negative]
+	overpriced: [negative]
+	wrong: [negative]
+	remove: [negative]
+	wasting: [negative]
+
+
+Tagging the text with dictionaries
+==================================
+
+The following code defines a class that tags  pre-processed text with just defined dictionaries.
+
+class DictionaryTagger(object):
+
+    def __init__(self, dictionary_paths):
+        files = [open(path, 'r') for path in dictionary_paths]
+        dictionaries = [yaml.load(dict_file) for dict_file in files]
+        map(lambda x: x.close(), files)
+        self.dictionary = {}
+        self.max_key_size = 0
+        for curr_dict in dictionaries:
+            for key in curr_dict:
+                if key in self.dictionary:
+                    self.dictionary[key].extend(curr_dict[key])
+                else:
+                    self.dictionary[key] = curr_dict[key]
+                    self.max_key_size = max(self.max_key_size, len(key))
+
+    def tag(self, postagged_sentences):
+        return [self.tag_sentence(sentence) for sentence in postagged_sentences]
+
+    def tag_sentence(self, sentence, tag_with_lemmas=False):
+        """
+        the result is only one tagging of all the possible ones.
+        The resulting tagging is determined by these two priority rules:
+            - longest matches have higher priority
+            - search is made from left to right
+        """
+        tag_sentence = []
+        N = len(sentence)
+        if self.max_key_size == 0:
+            self.max_key_size = N
+        i = 0
+        while (i < N):
+            j = min(i + self.max_key_size, N) #avoid overflow
+            tagged = False
+            while (j > i):
+                expression_form = ' '.join([word[0] for word in sentence[i:j]]).lower()
+                expression_lemma = ' '.join([word[1] for word in sentence[i:j]]).lower()
+                if tag_with_lemmas:
+                    literal = expression_lemma
+                else:
+                    literal = expression_form
+                if literal in self.dictionary:
+                    #self.logger.debug("found: %s" % literal)
+                    is_single_token = j - i == 1
+                    original_position = i
+                    i = j
+                    taggings = [tag for tag in self.dictionary[literal]]
+                    tagged_expression = (expression_form, expression_lemma, taggings)
+                    if is_single_token: #if the tagged literal is a single token, conserve its previous taggings:
+                        original_token_tagging = sentence[original_position][2]
+                        tagged_expression[2].extend(original_token_tagging)
+                    tag_sentence.append(tagged_expression)
+                    tagged = True
+                else:
+                    j = j - 1
+            if not tagged:
+                tag_sentence.append(sentence[i])
+                i += 1
+        return tag_sentence
+
+
+A simple sentiment measure
+==========================
+
+We could already perform a basic calculus of the positiveness or negativeness of a review.
+
+Simply counting how many positive and negative expressions we detected, could be a (very naive) sentiment measure.
+
+The following code snippet applies this idea:
+
+	 def value_of(sentiment):
+    	if sentiment == 'positive': return 1
+    	if sentiment == 'negative': return -1
+    	return 0
+
+	 def sentiment_score(review):    
+    	return sum ([value_of(tag) for sentence in dict_tagged_sentences for token in sentence for tag in token[2]])
+
+Incrementers and decrementers
+=============================
+
+The previous "sentiment score" was very basic: it only counts positive and negative expressions and makes a sum, without taking into account that maybe some expressions are more positive or more negative than others.
+
+A way of defining this "strength" could be using two new dictionaries. One for "incrementers" and another for "decrementers".
+
+Let's define two tiny examples:
+
+inc.yml
+    too: [inc]
+	very: [inc]
+	sorely: [inc]
+	more: [inc]
+	major: [inc]
+	lot: [inc]
+	able: [inc]
+
+dec.yml 
+    barely: [dec]
+	little: [dec]
+	but: [dec]
+	only: [dec]
+	any: [dec]
+	never: [dec]
+	anymore: [dec]
+	few: [dec]
+	just: [dec]      
+
+
+The following code defines the recursive function sentence_score to compute the sentiment score of a sentence. The most remarkable thing about it is that it uses information about the previous token to make a decision on the score of the current token.
+
+
+	 def sentence_score(sentence_tokens, previous_token, acum_score):    
+    	if not sentence_tokens:
+        	return acum_score
+    	else:
+        	current_token = sentence_tokens[0]
+        	tags = current_token[2]
+        	token_score = sum([value_of(tag) for tag in tags])
+        	if previous_token is not None:
+            	previous_tags = previous_token[2]
+            	if 'inc' in previous_tags:
+                	token_score *= 2.0
+            	elif 'dec' in previous_tags:
+                	token_score /= 2.0
+        return sentence_score(sentence_tokens[1:], current_token, acum_score + token_score)
+
+     def sentiment_score(review):
+    	return sum([sentence_score(sentence, None, 0.0) for sentence in review])
+
+
+Inverters and polarity flips
+============================
+
+Some expressions could be incorrectly tagged. For example, this part of our example review:
+							the eggplant is not bad
+
+contains the word bad but the sentence is a positive opinion about the eggplant.
+This is because the appearance of the negation word not, that flips the meaning of the negative adjective bad.
+
+We take into account these types of polarity flips defining a dictionary of inverters:
+
+inv.yml
+    lack of: [inv]
+	not: [inv]
+
+When tagging our text, we also specify this new dictionary in the instantiation of our tagger.
+
+
+
+
+Retrive the text from the website
+---------------------------------
+
+
+1. Create a new basic python file.
+
+2. Import the recent created database and sentiment analysis file:
+	 import database
+	 import basic_sentiment_analysis
+
+3. Import the following modules:
+
+     import urllib
+	 import lxml
+ 	 import nltk
+	 import yaml
+	 import sys
+	 import os
+	 import re
+	 import datetime
+	 from dateutil import parser
+	 from pprint import pprint
+	 from lxml import etree
+
+
+3. Create a variable ``page``, wich is the prefix of the 
+   chosen URL:
+
+ 	 page='http://www.amazon.com/Dekart-SIM-Car
+           d-Reader-Windows/product-reviews/B0045BIUGG/ref=cm_cr_getr_d_paging_btm_1?ie=UTF8&showViewpoints=1&sortBy=recent&pageNumber='
+
+4. Create the ``GetPage`` function wich takes an index at the 
+   input. Reform the URL by taking the page and adding the string defined index to it. Use ``urllib`` to open the URL, read it and then return the result:
+
+	 def GetPage(index):
+		 url=page+str(index)
+		 a=urllib.urlopen(url).read()
+		 return a
+	
+5. Create the ``GetDataFromPage`` function
+
+     def GetDataFromPage(a, i):
+		 x=etree.HTML(a) 
+		 rating = x.xpath("string(//div[@id='cm_cr-review_list']/div["+str(i)+"]/div[1]/a[1]/i)")
+		 author =  x.xpath("string(//div[@id='cm_cr-review_list']/div["+str(i)+"]/div[2]/span[1]/a)")
+		 dat = x.xpath("string(//div[@id='cm_cr-review_list']/div["+str(i)+"]/div[2]/span[4])")
+		 datee = dat[3:]
+		 date = datetime.datetime.strptime(datee, '%B %d, %Y').date()
+		 text = x.xpath("string(//div[@id='cm_cr-review_list']/div["+str(i)+"]/div[4]/span)")
+		 splitted_sentences = splitter.split(text)
+		 pprint(splitted_sentences)
+		 pos_tagged_sentences = postagger.pos_tag(splitted_sentences)
+		 pprint(pos_tagged_sentences)
+		 dict_tagged_sentences = dicttagger.tag(pos_tagged_sentences)
+		 pprint(dict_tagged_sentences)
+		 emotion=basic_sentiment_analysis.sentiment_score(dict_tagged_sentences)
+		 if emotion > 0:
+		 	emotion="pozitiv"
+		 elif emotion==0:
+		 	emotion="neutral"
+		 else:
+		 	emotion="negativ"
+		 dict = {}
+		 dict['rating']=rating[:4]
+		 dict['author']=author
+		 dict['date']=date
+		 dict['text']=text
+		 dict['emotion']=emotion
+		 return dict
+
+6. Combine together all the functions:
+
+	qs = database.CommentStorage("feedback.db")
+	qs.CreateDb()
+	s = basic_sentiment_analysis.Splitter()
+	splitter = basic_sentiment_analysis.Splitter()
+	postagger = basic_sentiment_analysis.POSTagger()
+	dicttagger = basic_sentiment_analysis.DictionaryTagger([ 'dicts/positive.yml', 'dicts/negative.yml', 
+                                          'dicts/inc.yml', 'dicts/dec.yml', 'dicts/inv.yml'])
+
+	for j in range (1, 13):
+		a = GetPage(j)
+		for i in range(1, 11):
+			data = GetDataFromPage(a,i)
+			qs.AddComment(data['rating'], data['author'], data['date'], data['text'], data['emotion'])
+			print i
+
+	qs.Close()		
+	print "Done!"
+
+
+
+Create the Windows executable (.exe) from Python Script:
+--------------------------------------------------------
+
+Create the setup.py script
+==========================
+
+1. Create a new file with name setup.py.
+
+2. Paste the following code in to it and save it. 
+   Import setup and py2exe to setup.py and call setup() function with the name of entry point script as argument (amazon.py):
+
+	from distutils.core import setup
+	import py2exe
+
+	setup(
+    	console=[{'script': 'amazon.py'}],
+    	options={
+        	'py2exe': 
+        	{
+            	'includes': ['lxml.etree', 'lxml._elementpath'],
+       		}
+   		}
+	)
+
+3. To build the executable, run "python setup.py py2exe" on the command prompt	
+
+4. Building the executable is finished. Now you can find ``amazon.exe`` in the
+   \dist sub folder. In command prompt move to dist sub folder and run amazon.exe.
+
+
+
+References
+----------
+
+- https://www.youtube.com/watch?v=fdXX8Rr5JM8
+- http://lxml.de
+- http://www.tutorialspoint.com/sqlite.htm
+- http://www.w3schools.com/xsl/xpath_syntax.asp
+- http://fjavieralba.com/basic-sentiment-analysis-with-python.html
+- http://www.py2exe.org/index.cgi/Tutorial
+- http://www.logix4u.net/component/content/article/27-tutorials/44-how-to-create-windows-executable-exe-from-python-script
