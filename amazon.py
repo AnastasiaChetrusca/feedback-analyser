@@ -11,7 +11,8 @@ import datetime
 from dateutil import parser
 from pprint import pprint
 from lxml import etree
-nltk.download('all')
+
+nltk.download()
 
 page='http://www.amazon.com/Dekart-SIM-Card-Reader-Windows/product-reviews/B0045BIUGG/ref=cm_cr_getr_d_paging_btm_1?ie=UTF8&showViewpoints=1&sortBy=recent&pageNumber='
 
